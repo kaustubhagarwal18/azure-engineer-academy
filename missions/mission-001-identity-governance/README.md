@@ -75,10 +75,31 @@ Three ideas that trip people up:
    why the managed identity, role assignment, and lock in [bicep/main.bicep](bicep/main.bicep) are
    modules scoped to the resource group, while the custom role and policy sit at the subscription).
 2. **Role definition vs role assignment.** The *definition* says what the role can do; the
-   *assignment* binds (definition × principal × scope). You need both.
+   *assignment* binds (definition × principal × scope). You need both. Each has its own
+   scope, and the two are easy to mix up. See the next section.
 3. **CLI vs Bicep.** The CLI is imperative — great for exploring and one-off fixes. Bicep is
    declarative — it describes the desired end state and is what you commit, review, and redeploy.
    See [ADR 0001](../../docs/adr/0001-cli-and-bicep-dual-track.md).
+
+### Assignable scopes vs assignment scope
+
+A custom role involves **two different scopes**, and they answer different questions:
+
+| | `AssignableScopes` (on the role **definition**) | `scope` (on the role **assignment**) |
+|---|---|---|
+| Question it answers | *Where is this role allowed to be assigned?* | *Where does this principal actually get these permissions?* |
+| Grants any access? | **No.** It is a fence around the role's availability. | **Yes.** This is what grants access, at that scope and below. |
+| In this mission | `/subscriptions/<id>`, so the role can be assigned anywhere in the subscription | `/subscriptions/<id>/resourceGroups/rg-academy-governance` (just the RG) |
+| Rule | Can list several management groups, subscriptions or RGs | Must be **at or below** one of the role's assignable scopes |
+
+So the role is *available* across the whole subscription, but the identity *holds* it only on
+one resource group. Assigning it at a scope outside `AssignableScopes` (for example another
+subscription) fails. Also, an assignable scope wider than you need doesn't leak any access by
+itself. Access comes only from assignments. Keep `AssignableScopes` as narrow as the places
+you really intend to use the role, because it limits who can be handed the role later.
+
+`validate.sh` checks both: the role's assignable scope is the subscription, and the assignment's
+scope is exactly the resource group (and not anything wider).
 
 ---
 
@@ -125,7 +146,9 @@ resource rg 'Microsoft.Resources/resourceGroups@2024-03-01' = {
 }
 ```
 
-Deploy: `az deployment sub create --location westeurope --template-file main.bicep`
+Deploy your own snippet file (it has no parameter file, so pass it directly):
+`az deployment sub create --location westeurope --template-file main.bicep`. The reference
+implementation uses `main.bicepparam` instead. See **Deploy** below.
 </details>
 
 ### Task 2 — Create a user-assigned managed identity
@@ -287,13 +310,19 @@ Reproduce the broken state and work it as an incident:
 
 ## Deploy (reference implementation)
 
-**Bicep (declarative — what you'd commit):**
+**Bicep (declarative — what you'd commit):** values come from
+[bicep/main.bicepparam](bicep/main.bicepparam). It names the template through its `using`
+line, so you pass only `--parameters`, without `--template-file`. Edit the `.bicepparam`
+file to change the region, names or environment. Always run `what-if` first.
 
 ```sh
 cd bicep
-az deployment sub what-if --location westeurope --template-file main.bicep
-az deployment sub create  --location westeurope --template-file main.bicep
+az deployment sub what-if --location westeurope --parameters main.bicepparam
+az deployment sub create --location westeurope --parameters main.bicepparam
 ```
+
+`--location` here is where the *deployment record* is stored, which a subscription-scope
+deployment requires. Keep it the same as the `location` in the parameter file.
 
 **CLI (imperative — same result, step by step):**
 
@@ -302,7 +331,29 @@ cd cli
 ./deploy.sh
 ```
 
-Override defaults with environment variables, e.g. `LOCATION=northeurope ENVIRONMENT=test ./deploy.sh`.
+Override defaults with environment variables, for example:
+
+```sh
+LOCATION=northeurope ENVIRONMENT=test ./deploy.sh
+```
+
+| Variable | Default | Rules (checked before any Azure call) |
+|---|---|---|
+| `LOCATION` | `westeurope` | not empty |
+| `RG_NAME` | `rg-academy-governance` | letters, digits, `. _ - ( )`; up to 90 chars |
+| `IDENTITY_NAME` | `id-platform-automation` | letters, digits, `- _`; 3–128 chars |
+| `COST_CENTER` | `platform-engineering` | not empty (it is the enforced tag value) |
+| `ENVIRONMENT` | `dev` | `dev`, `test` or `prod`, the same values the Bicep `@allowed` list accepts |
+
+A variable you leave **unset** gets the default. A variable set to an **empty** value
+(e.g. `LOCATION=`) is rejected, because that's almost always a typo. An invalid value stops
+the script with a one-line `ERROR:` and exit code 1 before anything is created. All three
+scripts share this configuration through [cli/_common.sh](cli/_common.sh), so `validate.sh`
+and `cleanup.sh` must be run with the same variables you deployed with.
+
+If the role assignment still fails after 5 attempts (15 s apart, to allow for Entra
+replication lag), `deploy.sh` prints the Azure CLI's last error and **stops with exit code 1**.
+It doesn't go on to the policy and lock steps.
 
 ## Validation
 
@@ -311,14 +362,32 @@ cd cli
 ./validate.sh
 ```
 
-Expected: a `PASS` line for the resource group, its `costCenter` tag, the managed identity, the
-custom role, the role assignment, the policy assignment, and the lock. Any `FAIL` exits non-zero.
+`validate.sh` checks the **configuration**, not just that objects exist. Every `FAIL` shows
+expected vs actual, and any `FAIL` exits non-zero:
+
+| Area | What is checked |
+|---|---|
+| Resource group | exists; `costCenter` tag equals `COST_CENTER` |
+| Custom role | grants `*/read`, `tags/write`, `tags/delete`; has **no** `*`, `*/write` or `*/delete`; assignable scope is the subscription |
+| Role assignment | principal is the identity's `principalId`; role is the custom role; scope is **exactly** the RG |
+| Policy definition | effect is `deny`; rule targets resource groups and tests `tags[costCenter]` |
+| Policy assignment | scope is the subscription; enforcement mode is `Default` (not `DoNotEnforce`) |
+| Lock | level is `CanNotDelete` |
+
+**Test the scripts without Azure (free, offline):** the suite runs the real scripts against a
+fake `az` and checks exit codes, error messages, and which calls were made. It works from any
+directory; from `cli/`:
+
+```sh
+../tests/test_cli.sh
+```
 
 **Compile/lint the Bicep without any Azure login (free):**
 
 ```sh
 bicep build bicep/main.bicep --stdout > /dev/null
 bicep lint bicep/main.bicep
+bicep build-params bicep/main.bicepparam --stdout > /dev/null
 ```
 
 Common failure cases:
@@ -326,7 +395,8 @@ Common failure cases:
 - `AuthorizationFailed` creating the role/assignment → your principal lacks **User Access
   Administrator**/Owner.
 - Role assignment fails right after identity creation → **Entra replication lag**; the deploy
-  script retries, Bicep handles the dependency ordering.
+  script retries 5 times and then stops with the CLI's error. Bicep handles the dependency
+  ordering.
 - `RequestDisallowedByPolicy` on an unrelated RG → your new policy is working; add the tag.
 
 ## Troubleshooting exercise
@@ -426,6 +496,9 @@ Record it in [PROGRESS.md](../../PROGRESS.md):
 | M001 — Governed landing zone foundations | Identities & governance | G, I, P | 2026-11-23 | <your notes> |
 ```
 
-Then **run `cli/cleanup.sh`** to remove everything.
+Then **run `cli/cleanup.sh`** to remove everything. It is safe on a partial deployment:
+objects that are already gone are reported as `skip`. Any other failure (often a missing
+permission, or a lock someone else added) is printed as `FAILED` with the Azure CLI's own
+error. The remaining steps still run, and the script exits non-zero so you know to look.
 
 Next up: Mission 002 (Entra users, groups, administrative units) — see [ROADMAP.md](../../ROADMAP.md).

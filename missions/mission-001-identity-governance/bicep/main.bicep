@@ -9,7 +9,8 @@
 //   6. a custom Azure Policy that denies resource groups without a costCenter tag, plus its
 //      subscription-scope assignment.
 //
-// Deploy with:  az deployment sub create --location <region> --template-file main.bicep
+// Deploy with the parameter file (it names this template via `using`, so no --template-file):
+//   az deployment sub create --location westeurope --parameters main.bicepparam
 // Requires the deploying principal to have Owner or (Contributor + User Access Administrator),
 // because it creates a custom role and a role assignment.
 

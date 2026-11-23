@@ -64,9 +64,16 @@ Legend: ✅ done · 🚧 in progress · ⬜ planned
 
 - No live-deployment validation in this repo; templates are compile- and lint-checked only.
   Deployment against a real subscription is left to the learner (and flagged as billable).
+- Mission 001's CLI scripts are tested against a fake `az`. `cleanup.sh`'s "already absent"
+  matching (`not found`, `does not exist`, …) hasn't been checked against live Azure output.
+  A mismatch shows up as a `FAILED` line, not a hidden error.
 - Dashboard not implemented; progress is tracked in [PROGRESS.md](PROGRESS.md).
 
 ## Planned fixes / next up
+
+- Capture real `az` error output for missing objects (lock, RG, policy, role) from a live
+  subscription and add it to `tests/fake_az.sh`, so the cleanup matching is checked against
+  real text.
 
 - Build Mission 002 and Mission 010 using Mission 001 as the pattern.
 - Add `az deployment ... what-if` transcripts captured from a real subscription as expected-output

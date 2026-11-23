@@ -12,17 +12,13 @@
 # Override any value with an environment variable, e.g.  LOCATION=northeurope ./deploy.sh
 set -euo pipefail
 
-LOCATION="${LOCATION:-westeurope}"
-RG_NAME="${RG_NAME:-rg-academy-governance}"
-IDENTITY_NAME="${IDENTITY_NAME:-id-platform-automation}"
-COST_CENTER="${COST_CENTER:-platform-engineering}"
-ENVIRONMENT="${ENVIRONMENT:-dev}"
-ROLE_NAME="Platform Tag Operator (${ENVIRONMENT})"
-POLICY_DEF_NAME="require-costcenter-tag-on-rg"
-POLICY_ASSIGN_NAME="require-costcenter-tag"
-LOCK_NAME="donotdelete-governance-rg"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source-path=SCRIPTDIR source=_common.sh
+. "${SCRIPT_DIR}/_common.sh"
 
-SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
+validate_config
+require_login
+
 echo "Deploying into subscription ${SUBSCRIPTION_ID} in ${LOCATION}"
 
 echo "==> 1/6 Resource group (with costCenter tag)"
@@ -67,20 +63,34 @@ else
 fi
 
 echo "==> 4/6 Role assignment (custom role -> identity, scoped to the resource group)"
-# Retry briefly: a brand-new identity's principalId can lag in Entra replication.
-for attempt in 1 2 3 4 5; do
-  if az role assignment create \
+# A brand-new identity's principalId can lag in Entra replication, so retry a few times.
+# We capture stderr (rather than discarding it) so a genuine failure is reported, not hidden.
+ASSIGN_SCOPE="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG_NAME}"
+MAX_ATTEMPTS=5
+assign_err=""
+assigned=false
+for attempt in $(seq 1 "${MAX_ATTEMPTS}"); do
+  if assign_err="$(az role assignment create \
       --assignee-object-id "${PRINCIPAL_ID}" \
       --assignee-principal-type ServicePrincipal \
       --role "${ROLE_NAME}" \
-      --scope "/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG_NAME}" \
-      --output none 2>/dev/null; then
+      --scope "${ASSIGN_SCOPE}" \
+      --output none 2>&1)"; then
     echo "    assigned"
+    assigned=true
     break
   fi
-  echo "    principal not ready yet (attempt ${attempt}/5), waiting..."
-  sleep 15
+  if [ "${attempt}" -lt "${MAX_ATTEMPTS}" ]; then
+    echo "    attempt ${attempt}/${MAX_ATTEMPTS} failed; principal may still be replicating, waiting 15s..."
+    sleep 15
+  fi
 done
+if [ "${assigned}" != true ]; then
+  echo "ERROR: role assignment failed after ${MAX_ATTEMPTS} attempts." >&2
+  echo "Last Azure CLI error:" >&2
+  echo "${assign_err}" >&2
+  exit 1
+fi
 
 echo "==> 5/6 Custom policy definition + assignment (deny RG without costCenter tag)"
 POLICY_RULE_JSON="$(cat <<'JSON'

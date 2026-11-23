@@ -16,7 +16,8 @@ flowchart LR
     M -->|Bicep path| B[bicep/main.bicep + modules]
     CLI --> AZ[(Azure subscription\n— learner-owned, optional)]
     B --> AZ
-    B --> CI[CI: validate-bicep\nbuild + lint]
+    B --> CI[CI: validate-bicep\nbuild + lint + params]
+    CLI --> CIS[CI: validate-shell\nShellCheck + bash -n + tests]
     M --> P[PROGRESS.md]
     P -.Phase 3.-> D[Static dashboard\nlocalStorage]
 ```
@@ -80,4 +81,6 @@ flowchart TB
 | Start learning | [missions/mission-001-identity-governance/README.md](../missions/mission-001-identity-governance/README.md) |
 | Read a design decision | [adr/](adr/) |
 | See how the capstone evolves | [capstone/README.md](../capstone/README.md) |
-| Understand CI | [.github/workflows/validate-bicep.yml](../.github/workflows/validate-bicep.yml) |
+| Understand CI | [validate-bicep.yml](../.github/workflows/validate-bicep.yml) (Bicep build/lint/params) and [validate-shell.yml](../.github/workflows/validate-shell.yml) (ShellCheck, `bash -n`, tests) |
+| Change a mission script's config or validation | `missions/<mission>/cli/_common.sh` (sourced by deploy/validate/cleanup) |
+| Test mission scripts offline | `missions/<mission>/tests/test_cli.sh` with the fake `az` in `tests/fake_az.sh` |
