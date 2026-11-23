@@ -1,7 +1,7 @@
 name: validate-bicep
 
-# Compiles and lints every Bicep template in the repo. No Azure login and no deployment:
-# this is free, fast feedback and needs no subscription or secrets.
+# Compiles and lints every Bicep template and parameter file in the repo. No Azure login and
+# no deployment: this is free, fast feedback and needs no subscription or secrets.
 
 on:
   pull_request:
@@ -26,36 +26,67 @@ jobs:
     runs-on: ubuntu-latest
     env:
       BICEP_VERSION: v0.49.2
+      # SHA-256 of bicep-linux-x64 for BICEP_VERSION. Update both together when upgrading.
+      BICEP_SHA256: 0ab9de90c2493f206f8281bae74f9ee2d5ed3605548dab1adf41fef185e1f7c5
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install pinned Bicep CLI
+      - name: Install pinned Bicep CLI (checksum-verified)
         run: |
           set -euo pipefail
-          curl -sSL -o bicep \
+          curl -fsSL -o bicep \
             "https://github.com/Azure/bicep/releases/download/${BICEP_VERSION}/bicep-linux-x64"
+          echo "${BICEP_SHA256}  bicep" | sha256sum --check --strict
           chmod +x bicep
           sudo mv bicep /usr/local/bin/bicep
           bicep --version
 
-      - name: Build and lint every Bicep file
+      - name: Build and lint every Bicep and parameter file
         run: |
-          set -euo pipefail
-          shopt -s globstar nullglob
-          files=(**/*.bicep)
-          if [ ${#files[@]} -eq 0 ]; then
-            echo "No .bicep files found."
-            exit 0
-          fi
-          rc=0
-          for f in "${files[@]}"; do
-            echo "::group::$f"
-            # build fails on compile errors; it also surfaces linter diagnostics.
+          set -uo pipefail
+          mapfile -t templates < <(git ls-files '*.bicep')
+          mapfile -t params < <(git ls-files '*.bicepparam')
+          failed=()
+
+          for f in "${templates[@]}"; do
+            echo "::group::bicep build + lint: $f"
+            # build fails on compile errors; lint fails on error-level analyzer rules
+            # (see bicepconfig.json). Both print the diagnostics they found.
             if ! bicep build "$f" --stdout > /dev/null; then
               echo "::error file=$f::bicep build failed"
-              rc=1
+              failed+=("build: $f")
             fi
-            bicep lint "$f" || rc=1
+            if ! bicep lint "$f"; then
+              echo "::error file=$f::bicep lint failed"
+              failed+=("lint: $f")
+            fi
             echo "::endgroup::"
           done
-          exit $rc
+
+          for f in "${params[@]}"; do
+            echo "::group::bicep build-params: $f"
+            if ! bicep build-params "$f" --stdout > /dev/null; then
+              echo "::error file=$f::bicep build-params failed"
+              failed+=("build-params: $f")
+            fi
+            echo "::endgroup::"
+          done
+
+          {
+            echo "### Bicep validation"
+            echo ""
+            echo "- Bicep ${BICEP_VERSION}"
+            echo "- ${#templates[@]} template(s), ${#params[@]} parameter file(s)"
+            if [ ${#failed[@]} -eq 0 ]; then
+              echo "- Result: **all passed**"
+            else
+              echo "- Result: **${#failed[@]} failure(s)**"
+              printf -- '  - %s\n' "${failed[@]}"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ ${#failed[@]} -ne 0 ]; then
+            echo "Bicep validation failed: ${failed[*]}"
+            exit 1
+          fi
+          echo "All ${#templates[@]} templates and ${#params[@]} parameter files passed."

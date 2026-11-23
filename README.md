@@ -10,8 +10,9 @@ _A learning dashboard screenshot will live here once the dashboard (Phase 3) is 
 
 ![AZ-104](https://img.shields.io/badge/exam-AZ--104-0078D4)
 ![Bicep](https://img.shields.io/badge/Bicep-0.49.2-blue)
+![ShellCheck](https://img.shields.io/badge/ShellCheck-0.11.0-blue)
 ![IaC](https://img.shields.io/badge/IaC-CLI%20%2B%20Bicep-success)
-![CI](https://img.shields.io/badge/CI-validate--bicep-informational)
+![CI](https://img.shields.io/badge/CI-validate--bicep%20%2B%20validate--shell-informational)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## What this is
@@ -52,6 +53,17 @@ Validate a mission's Bicep locally (no Azure login needed):
 ```sh
 bicep build missions/mission-001-identity-governance/bicep/main.bicep --stdout > /dev/null
 bicep lint missions/mission-001-identity-governance/bicep/main.bicep
+bicep build-params missions/mission-001-identity-governance/bicep/main.bicepparam --stdout > /dev/null
+```
+
+To deploy, use the parameter file (it names its template, so there's no `--template-file`).
+This **creates real resources in your subscription**; Mission 001's are free, but run its
+cleanup script afterwards:
+
+```sh
+cd missions/mission-001-identity-governance/bicep
+az deployment sub what-if --location westeurope --parameters main.bicepparam
+az deployment sub create --location westeurope --parameters main.bicepparam
 ```
 
 Then open [missions/mission-001-identity-governance/README.md](missions/mission-001-identity-governance/README.md)
@@ -81,16 +93,34 @@ and start the Guided track.
 
 ## Development
 
+Everything below runs offline, with no Azure login and no cost. Install ShellCheck with
+`brew install shellcheck`.
+
 ```sh
 bicep build <path-to>.bicep --stdout > /dev/null
 bicep lint <path-to>.bicep
-shellcheck missions/*/cli/*.sh
+bicep build-params <path-to>.bicepparam --stdout > /dev/null
+shellcheck -x $(git ls-files '*.sh')
+for f in $(git ls-files '*.sh'); do bash -n "$f" || echo "syntax error: $f"; done
+missions/mission-001-identity-governance/tests/test_cli.sh
 ```
 
-CI job on pull requests and pushes to `main`:
+The mission test suites run the real CLI scripts against a fake `az`
+([tests/fake_az.sh](missions/mission-001-identity-governance/tests/fake_az.sh)), so they check
+exit codes, error messages and which Azure calls are made without touching Azure.
 
-- **validate-bicep** — installs the Bicep CLI and runs `bicep build` + `bicep lint` on every
-  `.bicep` file in the repo. See [.github/workflows/validate-bicep.yml](.github/workflows/validate-bicep.yml).
+CI on pull requests and pushes to `main`. Tool versions are pinned and their downloads
+checked against a SHA-256; each failure is annotated on the file and listed in the job summary.
+
+| Workflow | Job | What it checks |
+|---|---|---|
+| [validate-bicep](.github/workflows/validate-bicep.yml) | `validate` | Bicep 0.49.2: `bicep build` + `bicep lint` on every `.bicep`, and `bicep build-params` on every `.bicepparam` |
+| [validate-shell](.github/workflows/validate-shell.yml) | `shellcheck` | ShellCheck 0.11.0 (`-x`) on every tracked `.sh` file |
+| | `syntax` | `bash -n` on every tracked `.sh` file |
+| | `tests` | every `missions/*/tests/test_*.sh` suite (fake `az`, offline) |
+
+Each workflow only runs when its own file types change (paths filters). To upgrade a tool,
+change its version **and** its SHA-256 in the workflow, and update the badge above.
 
 ## Known issues / status
 
@@ -99,6 +129,12 @@ CI job on pull requests and pushes to `main`:
 - **Only Mission 001 is complete.** It is the reference implementation; Weeks 2–5 are planned.
 - Bicep templates are compiled and linted locally and in CI, but **not deployed** against a
   live subscription in this repo. Deploy against your own subscription at your own cost.
+- The CLI scripts are tested against a **fake** `az`, not the real Azure CLI. The fake's
+  responses and error texts are modelled on the CLI's documented behaviour. In particular,
+  `cleanup.sh` decides that an object is "already absent" by matching messages like
+  `not found` / `does not exist`, and that matching hasn't been checked against live Azure
+  output. If a real "absent" error doesn't match, cleanup reports it as `FAILED` (the safe
+  direction) instead of hiding it.
 
 ## License
 
