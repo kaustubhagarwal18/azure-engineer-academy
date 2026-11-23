@@ -1,0 +1,33 @@
+# Azure / Bicep
+*.bicepparam.local
+.azure/
+azureProfile.json
+*.azcli.out
+
+# Secrets / local config (never commit)
+.env
+.env.*
+*.pem
+*.key
+secrets.json
+**/local.settings.json
+
+# Node / tooling (dashboard comes later)
+node_modules/
+dist/
+.cache/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+
+# Local notes for Claude / personal
+CLAUDE.md
+scratch/
+*.local.md
+
+# Deployment output captured locally
+deploy-output/
+*.what-if.txt
