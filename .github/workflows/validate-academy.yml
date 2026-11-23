@@ -1,0 +1,66 @@
+name: validate-academy
+
+# Tests the static learning interface in academy/. No dependencies are installed: the unit tests
+# use Node's built-in test runner, and the smoke test drives the runner's preinstalled Chrome over
+# the DevTools protocol with Node's built-in WebSocket.
+
+on:
+  pull_request:
+    paths:
+      - "academy/**"
+      - ".github/workflows/validate-academy.yml"
+  push:
+    branches: [main]
+    paths:
+      - "academy/**"
+      - ".github/workflows/validate-academy.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: unit + content tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Syntax-check every module
+        run: |
+          set -uo pipefail
+          failed=0
+          while IFS= read -r f; do
+            if ! node --check "$f"; then
+              echo "::error file=$f::syntax error"
+              failed=$((failed + 1))
+            fi
+          done < <(git ls-files 'academy/*.js' 'academy/*.mjs')
+          [ "${failed}" -eq 0 ]
+
+      - name: Unit and content-integrity tests
+        working-directory: academy
+        run: node --test --test-reporter=spec --test-reporter-destination=stdout "tests/*.test.js"
+
+  e2e:
+    name: browser smoke test (non-blocking)
+    runs-on: ubuntu-latest
+    # Calibrated on macOS only so far. Kept non-blocking until it has proven stable on the runner.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Headless Chrome smoke test
+        run: |
+          set -euo pipefail
+          CHROME="$(command -v google-chrome || command -v chromium || true)"
+          export CHROME
+          echo "Chrome: ${CHROME:-not found}"
+          node academy/tests/e2e/smoke.mjs

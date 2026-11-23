@@ -1,7 +1,8 @@
 # Progress log
 
-Your personal learning record. Update a row when you complete a mission. This file is the
-source of truth until the Phase 3 dashboard reads it.
+An optional, hand-written learning log. The [academy](academy/README.md) tracks task, quiz and
+achievement progress automatically in your browser, and it does **not** read this file. Keep
+this log if you want a written record in git (notes, dates, assessment scores), or ignore it.
 
 ## Mission log
 

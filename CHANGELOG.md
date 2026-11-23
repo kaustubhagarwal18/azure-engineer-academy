@@ -4,6 +4,43 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [semantic versioning](https://semver.org/). It stays on `0.x` while structure can still change.
 
+## [Unreleased]
+
+### Added
+- **Interactive academy** (`academy/`): a static, dependency-free learning interface.
+  - Dashboard with AZ-104 progress weighted by exam domain. It says how much content is
+    published, so the percentage isn't read as exam readiness.
+  - Domain and mission pages with Guided, Independent and Production Incident modes.
+  - Task player: scenario, challenge, answer box, rule checks that explain each mistake,
+    progressive hints, solution unlocked only after a non-empty attempt.
+  - Mentor review: copies a prompt (never including the solution) for ChatGPT or another AI
+    mentor, and records the PASS / NEEDS WORK verdict. A mentor PASS completes a task;
+    incident write-ups need one.
+  - Quizzes with feedback for every option, a weak-topic revision plan with Microsoft Learn
+    links, achievements calculated from real completion, and localStorage persistence with
+    export, import and reset.
+  - Accessibility: skip link, labelled controls, focus management, live announcements, a
+    single h1 per page, and AA contrast in light and dark themes (lowest measured 5.78:1).
+  - Responsive down to 375 px.
+- Mission 001 content for the academy: 13 tasks (6 Guided, 4 Independent, 3 Production
+  Incident) and a 9-question quiz.
+- Tests: 139 Node unit and content-integrity tests, including "every reference solution passes
+  its own checks", plus a 32-step headless-Chrome smoke test driven over the DevTools protocol
+  with no dependencies.
+- CI workflow `validate-academy`: a blocking `unit` job and a non-blocking `e2e` job.
+- ADR 0003 (static academy, rule checks plus mentor review); `academy/README.md`; README
+  screenshots; an "Interactive content" section in the mission template.
+
+### Changed
+- `PROGRESS.md` is now an optional written log; the academy tracks progress itself.
+
+### Known issues
+- Rule checks are regex patterns and can wrongly reject an unanticipated valid answer. A mentor
+  PASS overrides them.
+- Progress is per browser, and mentor verdicts are self-reported.
+- The smoke test has only been run on macOS, so its CI job is non-blocking.
+- Mission content lives in both the README and the academy JSON, and is kept in sync by hand.
+
 ## [0.1.0] — 2026-11-23
 
 ### Added
