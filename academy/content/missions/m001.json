@@ -1,0 +1,472 @@
+{
+  "id": "m001",
+  "domain": "identity-governance",
+  "title": "Governed landing zone foundations",
+  "summary": "Stand up a governance baseline before any workload lands: a tagged resource group, a least-privilege custom role, a managed identity, enforced tagging with Azure Policy, and a delete lock.",
+  "estimatedMinutes": 60,
+  "readme": "../missions/mission-001-identity-governance/README.md",
+  "modes": {
+    "guided": {
+      "intro": "Build the landing zone one piece at a time with the Azure CLI. Each task has hints, and the solution unlocks after your first attempt. Try the task before opening a hint.",
+      "tasks": [
+        {
+          "id": "g1-resource-group",
+          "title": "Create a tagged resource group",
+          "scenario": "Finance can't attribute any Azure spend because nothing is tagged. Before workloads land, the platform team has decided every resource group must carry a `costCenter` tag. You're creating the first governed resource group.",
+          "challenge": "Write the Azure CLI command that creates resource group `rg-academy-governance` in `westeurope`, tagged `costCenter=platform-engineering` and `environment=dev`.",
+          "answerType": "cli",
+          "review": "auto",
+          "topics": ["tags"],
+          "hints": [
+            "Resource groups are managed with the `az group` command group.",
+            "`--tags` takes space-separated `key=value` pairs.",
+            "Shape: `az group create --name <rg> --location <region> --tags key=value key=value`."
+          ],
+          "checks": [
+            { "id": "cmd", "kind": "require", "pattern": "\\baz\\s+group\\s+create\\b", "description": "Uses az group create", "mistake": "Creating a resource group is `az group create`." },
+            { "id": "name", "kind": "require", "pattern": "(--name|-n)\\s+[\"']?rg-academy-governance\\b", "description": "Names the group rg-academy-governance", "mistake": "Pass the name with `--name rg-academy-governance` (or `-n`)." },
+            { "id": "location", "kind": "require", "pattern": "(--location|-l)\\s+[\"']?westeurope\\b", "flags": "i", "description": "Sets the location to westeurope", "mistake": "A resource group needs a location (`--location westeurope`). It stores the group's metadata; resources inside can be in other regions." },
+            { "id": "tag-cc", "kind": "require", "pattern": "costCenter=[\"']?platform-engineering", "description": "Tags costCenter=platform-engineering", "mistake": "The `costCenter=platform-engineering` tag is the whole point: the policy in Task 5 will deny groups without it." },
+            { "id": "tag-env", "kind": "require", "pattern": "environment=[\"']?dev\\b", "description": "Tags environment=dev", "mistake": "Add `environment=dev` as a second tag." },
+            { "id": "comma", "kind": "forbid", "pattern": "costCenter=[\"']?platform-engineering[\"']?,", "description": "Tags are space-separated, not comma-separated", "mistake": "With a comma, `costCenter=platform-engineering,environment=dev` becomes ONE tag whose value is `platform-engineering,environment=dev`. Separate tags with spaces." }
+          ],
+          "solution": {
+            "code": "az group create \\\n  --name rg-academy-governance \\\n  --location westeurope \\\n  --tags costCenter=platform-engineering environment=dev",
+            "explanation": "`--tags` takes space-separated pairs. The location only says where the group's metadata lives. Tags are not inherited by the resources inside the group; you need a policy for that."
+          }
+        },
+        {
+          "id": "g2-managed-identity",
+          "title": "Create a user-assigned managed identity",
+          "scenario": "The CI/CD pipeline will need an Azure identity. The team has banned client secrets in pipeline variables after a leaked secret last quarter, so you're creating a managed identity instead.",
+          "challenge": "Create the user-assigned managed identity `id-platform-automation` in `rg-academy-governance`, then print the one ID you'll need to give it a role.",
+          "answerType": "cli",
+          "review": "auto",
+          "topics": ["managed-identities"],
+          "hints": [
+            "Managed identities live under `az identity`.",
+            "An identity has a clientId (used by apps to request tokens) and a principalId (its object ID in Entra). Role assignments bind to one of them.",
+            "Read it back with `az identity show ... --query principalId -o tsv`."
+          ],
+          "checks": [
+            { "id": "create", "kind": "require", "pattern": "\\baz\\s+identity\\s+create\\b", "description": "Uses az identity create", "mistake": "Create the identity with `az identity create`." },
+            { "id": "name", "kind": "require", "pattern": "(--name|-n)\\s+[\"']?id-platform-automation\\b", "description": "Names it id-platform-automation", "mistake": "Name the identity `id-platform-automation`." },
+            { "id": "rg", "kind": "require", "pattern": "(--resource-group|-g)\\s+[\"']?rg-academy-governance\\b", "description": "Creates it in rg-academy-governance", "mistake": "A user-assigned identity is a resource. Put it in `rg-academy-governance` with `--resource-group`." },
+            { "id": "show", "kind": "require", "pattern": "\\baz\\s+identity\\s+show\\b", "description": "Reads the identity back with az identity show", "mistake": "Print the ID with `az identity show`." },
+            { "id": "principal", "kind": "require", "pattern": "--query\\s+[\"']?principalId\\b", "description": "Queries the principalId", "mistake": "Role assignments need the identity's principalId (its object ID). Query `principalId`." },
+            { "id": "client", "kind": "forbid", "pattern": "--query\\s+[\"']?clientId\\b", "description": "Does not use the clientId for the assignment", "mistake": "The clientId is what an application uses to request a token. RBAC assignments bind to the principalId (object ID); using the clientId fails or matches the wrong object." }
+          ],
+          "solution": {
+            "code": "az identity create \\\n  --name id-platform-automation \\\n  --resource-group rg-academy-governance \\\n  --location westeurope\n\naz identity show \\\n  --name id-platform-automation \\\n  --resource-group rg-academy-governance \\\n  --query principalId -o tsv",
+            "explanation": "A user-assigned identity is a standalone resource with its own lifecycle, so one identity can be shared by several resources. Azure rotates its credential, so there's no secret to leak. Use its principalId (object ID) for role assignments."
+          }
+        },
+        {
+          "id": "g3-custom-role",
+          "title": "Author a least-privilege custom role",
+          "scenario": "Automation must fix missing or wrong tags across the subscription. It must never be able to create, change or delete the resources themselves. No built-in role is exactly that narrow.",
+          "challenge": "Write the custom role definition JSON for `Platform Tag Operator (dev)`. It can read everything and write and delete tags, but nothing else. It must be assignable anywhere in subscription `00000000-0000-0000-0000-000000000000`.",
+          "answerType": "json",
+          "review": "auto",
+          "topics": ["custom-roles", "least-privilege"],
+          "hints": [
+            "A role definition has `Name`, `Actions`, `NotActions`, `DataActions`, `NotDataActions` and `AssignableScopes`.",
+            "Read-everything is the single action `*/read`. Tag management lives under the `Microsoft.Resources/tags` provider.",
+            "`AssignableScopes` controls where the role may be assigned, not where it is assigned. Use `/subscriptions/<id>`."
+          ],
+          "checks": [
+            { "id": "name", "kind": "require", "pattern": "\"Name\"\\s*:\\s*\"Platform Tag Operator \\(dev\\)\"", "flags": "i", "description": "Names the role Platform Tag Operator (dev)", "mistake": "Set `\"Name\": \"Platform Tag Operator (dev)\"`." },
+            { "id": "read", "kind": "require", "pattern": "\"\\*/read\"", "description": "Grants */read", "mistake": "Reading everything is the action `*/read`." },
+            { "id": "tag-write", "kind": "require", "pattern": "\"Microsoft\\.Resources/tags/write\"", "flags": "i", "description": "Grants Microsoft.Resources/tags/write", "mistake": "Writing tags needs `Microsoft.Resources/tags/write`." },
+            { "id": "tag-delete", "kind": "require", "pattern": "\"Microsoft\\.Resources/tags/delete\"", "flags": "i", "description": "Grants Microsoft.Resources/tags/delete", "mistake": "Removing tags needs `Microsoft.Resources/tags/delete`." },
+            { "id": "scope", "kind": "require", "pattern": "\"AssignableScopes\"\\s*:\\s*\\[\\s*\"/subscriptions/00000000-0000-0000-0000-000000000000\"", "flags": "i", "description": "Assignable at the subscription", "mistake": "Set `AssignableScopes` to `[\"/subscriptions/00000000-0000-0000-0000-000000000000\"]` so the role can be assigned anywhere in that subscription." },
+            { "id": "wildcard", "kind": "forbid", "pattern": "\"\\*\"", "description": "No \"*\" (all actions)", "mistake": "`\"*\"` grants every action, including delete and role assignment. That makes it Owner, not a tag operator." },
+            { "id": "broad-write", "kind": "forbid", "pattern": "\"\\*/(write|delete|action)\"", "flags": "i", "description": "No */write, */delete or */action", "mistake": "`*/write` or `*/delete` lets the identity change or delete every resource. Grant only the tag actions." },
+            { "id": "authz", "kind": "forbid", "pattern": "\"Microsoft\\.Authorization/", "flags": "i", "description": "No Microsoft.Authorization actions", "mistake": "Granting `Microsoft.Authorization/*` actions lets the identity change role assignments, which means it can escalate its own privileges." }
+          ],
+          "solution": {
+            "code": "{\n  \"Name\": \"Platform Tag Operator (dev)\",\n  \"Description\": \"Read all resources and manage tags; cannot create or delete resources.\",\n  \"Actions\": [\n    \"*/read\",\n    \"Microsoft.Resources/tags/write\",\n    \"Microsoft.Resources/tags/delete\"\n  ],\n  \"NotActions\": [],\n  \"DataActions\": [],\n  \"NotDataActions\": [],\n  \"AssignableScopes\": [\"/subscriptions/00000000-0000-0000-0000-000000000000\"]\n}",
+            "explanation": "Three actions, nothing more. `AssignableScopes` is a fence: it says where this role may be assigned and grants nothing by itself. In production, check first whether built-in roles fit (Reader plus Tag Contributor comes close). Every custom role is something you have to maintain."
+          }
+        },
+        {
+          "id": "g4-role-assignment",
+          "title": "Assign the role at the narrowest scope",
+          "scenario": "The role exists. Now bind it to the pipeline identity, but only where it is needed: the governance resource group, not the whole subscription.",
+          "challenge": "Assign `Platform Tag Operator (dev)` to the managed identity (principal ID `22222222-2222-2222-2222-222222222222`) on resource group `rg-academy-governance` only. Subscription ID: `00000000-0000-0000-0000-000000000000`.",
+          "answerType": "cli",
+          "review": "auto",
+          "topics": ["role-assignments", "rbac-scope", "managed-identities"],
+          "hints": [
+            "An assignment binds three things: a role, a principal, and a scope.",
+            "For a managed identity, pass `--assignee-object-id` together with `--assignee-principal-type ServicePrincipal`. This skips a directory lookup that can fail while a new identity is still replicating.",
+            "The resource-group scope is `/subscriptions/<sub>/resourceGroups/<rg>`. The role name contains spaces, so quote it."
+          ],
+          "checks": [
+            { "id": "cmd", "kind": "require", "pattern": "\\baz\\s+role\\s+assignment\\s+create\\b", "description": "Uses az role assignment create", "mistake": "Create the binding with `az role assignment create`." },
+            { "id": "object-id", "kind": "require", "pattern": "--assignee-object-id\\s+[\"']?22222222-2222-2222-2222-222222222222\\b", "description": "Assigns by object ID", "mistake": "Use `--assignee-object-id 22222222-2222-2222-2222-222222222222` (the principalId)." },
+            { "id": "principal-type", "kind": "require", "pattern": "--assignee-principal-type\\s+[\"']?ServicePrincipal\\b", "description": "Declares the principal type ServicePrincipal", "mistake": "Add `--assignee-principal-type ServicePrincipal`. A managed identity is a service principal, and declaring it avoids failures while a new identity replicates." },
+            { "id": "role", "kind": "require", "pattern": "--role\\s+[\"']Platform Tag Operator \\(dev\\)[\"']", "description": "Assigns the quoted custom role", "mistake": "Pass `--role \"Platform Tag Operator (dev)\"`. Without quotes, the shell splits the name at its spaces." },
+            { "id": "scope", "kind": "require", "pattern": "(--scope\\s+[\"']?/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-academy-governance[\"']?(\\s|$)|(--resource-group|-g)\\s+[\"']?rg-academy-governance\\b)", "flags": "i", "description": "Scoped to the resource group", "mistake": "Scope it to the resource group: `--scope /subscriptions/0000…/resourceGroups/rg-academy-governance` (or `--resource-group rg-academy-governance`). Leaving the scope off, or using the subscription, grants it everywhere." },
+            { "id": "assignee-by-name", "kind": "forbid", "pattern": "--assignee\\s", "description": "Does not use --assignee", "mistake": "`--assignee` makes the CLI look the principal up in Microsoft Graph. That needs directory read permissions and can fail on a brand-new identity. Use `--assignee-object-id` with `--assignee-principal-type`." },
+            { "id": "broad-role", "kind": "forbid", "pattern": "--role\\s+[\"']?(Owner|Contributor)\\b", "flags": "i", "description": "Does not use Owner or Contributor", "mistake": "Owner or Contributor would let the pipeline create and delete resources. That's far more than tag management." }
+          ],
+          "solution": {
+            "code": "az role assignment create \\\n  --assignee-object-id 22222222-2222-2222-2222-222222222222 \\\n  --assignee-principal-type ServicePrincipal \\\n  --role \"Platform Tag Operator (dev)\" \\\n  --scope /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-academy-governance",
+            "explanation": "The role can be assigned anywhere in the subscription (its AssignableScopes), but this assignment grants it on one resource group only. Access always comes from assignments, never from AssignableScopes. Right after creating an identity, this can fail for a minute while Entra replicates it; the reference deploy.sh retries 5 times and then stops with the error."
+          }
+        },
+        {
+          "id": "g5-policy",
+          "title": "Enforce tagging with Azure Policy",
+          "scenario": "Tagging by convention has already failed once: someone created an untagged resource group last week. The team wants the platform itself to refuse untagged resource groups.",
+          "challenge": "Write the policy rule (the `if` / `then` JSON of a policy definition) that denies creating a resource group without a `costCenter` tag.",
+          "answerType": "json",
+          "review": "auto",
+          "topics": ["azure-policy", "tags"],
+          "hints": [
+            "A rule is `{ \"if\": <condition>, \"then\": { \"effect\": ... } }`.",
+            "You need two conditions together: the resource is a resource group, and the tag is missing. Combine them with `allOf`.",
+            "Use `{ \"field\": \"type\", \"equals\": \"Microsoft.Resources/subscriptions/resourceGroups\" }` and `{ \"field\": \"tags[costCenter]\", \"exists\": \"false\" }`."
+          ],
+          "checks": [
+            { "id": "allof", "kind": "require", "pattern": "\"allOf\"", "flags": "i", "description": "Combines conditions with allOf", "mistake": "Both conditions must hold together, so wrap them in `allOf`. Without the type condition, the rule would deny every untagged resource, not just resource groups." },
+            { "id": "type", "kind": "require", "pattern": "\"equals\"\\s*:\\s*\"Microsoft\\.Resources/subscriptions/resourceGroups\"", "flags": "i", "description": "Targets resource groups", "mistake": "Match resource groups with `\"field\": \"type\", \"equals\": \"Microsoft.Resources/subscriptions/resourceGroups\"`." },
+            { "id": "tag", "kind": "require", "pattern": "\"field\"\\s*:\\s*\"tags(\\['?costCenter'?\\]|\\.costCenter)\"", "flags": "i", "description": "Tests the costCenter tag", "mistake": "Reference the tag as `\"field\": \"tags[costCenter]\"`." },
+            { "id": "exists", "kind": "require", "pattern": "\"exists\"\\s*:\\s*\"?false\"?", "flags": "i", "description": "Checks the tag does not exist", "mistake": "Use `\"exists\": \"false\"` so the rule matches when the tag is missing." },
+            { "id": "deny", "kind": "require", "pattern": "\"effect\"\\s*:\\s*\"deny\"", "flags": "i", "description": "Uses the deny effect", "mistake": "The requirement is to block the request, which is the `deny` effect." },
+            { "id": "audit", "kind": "forbid", "pattern": "\"effect\"\\s*:\\s*\"audit\"", "flags": "i", "description": "Does not use audit", "mistake": "`audit` only reports the problem and still lets the untagged group through. It's right for a rollout, but this task asks for enforcement." }
+          ],
+          "solution": {
+            "code": "{\n  \"if\": {\n    \"allOf\": [\n      { \"field\": \"type\", \"equals\": \"Microsoft.Resources/subscriptions/resourceGroups\" },\n      { \"field\": \"tags[costCenter]\", \"exists\": \"false\" }\n    ]\n  },\n  \"then\": { \"effect\": \"deny\" }\n}",
+            "explanation": "Policy evaluates at request time, so `deny` blocks the create before anything exists. Assign it at the subscription (`az policy assignment create --scope /subscriptions/<id>`) so it covers every resource group there."
+          }
+        },
+        {
+          "id": "g6-lock",
+          "title": "Protect the resource group from deletion",
+          "scenario": "Last month a mis-click deleted a shared resource group, and it took a day to rebuild. The governance group must survive a careless delete, while people can still change what's inside it.",
+          "challenge": "Write the command that puts a lock on `rg-academy-governance` that blocks deletion but still allows changes.",
+          "answerType": "cli",
+          "review": "auto",
+          "topics": ["resource-locks"],
+          "hints": [
+            "Locks are managed with `az lock`.",
+            "There are two lock levels. Only one of them still allows writes.",
+            "`az lock create --name <name> --lock-type <level> --resource-group <rg>`."
+          ],
+          "checks": [
+            { "id": "cmd", "kind": "require", "pattern": "\\baz\\s+lock\\s+create\\b", "description": "Uses az lock create", "mistake": "Create the lock with `az lock create`." },
+            { "id": "level", "kind": "require", "pattern": "--lock-type\\s+[\"']?CanNotDelete\\b", "flags": "i", "description": "Uses the CanNotDelete level", "mistake": "The level that blocks deletion but allows changes is `--lock-type CanNotDelete`." },
+            { "id": "rg", "kind": "require", "pattern": "(--resource-group|-g)\\s+[\"']?rg-academy-governance\\b", "description": "Locks rg-academy-governance", "mistake": "Target the group with `--resource-group rg-academy-governance`." },
+            { "id": "name", "kind": "require", "pattern": "(--name|-n)\\s+\\S+", "description": "Gives the lock a name", "mistake": "A lock needs a name, e.g. `--name donotdelete-governance-rg`." },
+            { "id": "readonly", "kind": "forbid", "pattern": "ReadOnly", "flags": "i", "description": "Does not use ReadOnly", "mistake": "A `ReadOnly` lock blocks every write, and some operations that look like reads (such as listing storage account keys). That breaks normal work, not just deletes." }
+          ],
+          "solution": {
+            "code": "az lock create \\\n  --name donotdelete-governance-rg \\\n  --lock-type CanNotDelete \\\n  --resource-group rg-academy-governance \\\n  --notes \"Remove deliberately before teardown (see cleanup.sh).\"",
+            "explanation": "The lock applies to the group and everything inside it, and it overrides permissions: even an Owner can't delete until the lock is removed. That's why cleanup.sh removes the lock first."
+          }
+        }
+      ]
+    },
+    "independent": {
+      "intro": "No step-by-step guidance. Each task states a requirement for production, and you write the Bicep. Hints are short and there are fewer of them. Then compare with the reference templates in the mission folder.",
+      "tasks": [
+        {
+          "id": "i1-prod-rg",
+          "title": "Production resource group in Bicep",
+          "scenario": "Production needs its own resource group, created from code that can be reviewed in a pull request and redeployed the same way every time.",
+          "challenge": "Write a Bicep file that creates resource group `rg-academy-prod`, tagged `environment: 'prod'` and `costCenter` (from a parameter). Pick the correct `targetScope`.",
+          "answerType": "bicep",
+          "review": "auto",
+          "topics": ["bicep-deployment", "tags"],
+          "hints": [
+            "A resource group is a resource of the subscription, so the file must target the subscription scope."
+          ],
+          "checks": [
+            { "id": "scope", "kind": "require", "pattern": "targetScope\\s*=\\s*'subscription'", "description": "targetScope is subscription", "mistake": "A resource group is created in a subscription, so set `targetScope = 'subscription'`." },
+            { "id": "resource", "kind": "require", "pattern": "resource\\s+\\w+\\s+'Microsoft\\.Resources/resourceGroups@\\d{4}-\\d{2}-\\d{2}(-preview)?'", "flags": "i", "description": "Declares a Microsoft.Resources/resourceGroups resource", "mistake": "Declare `resource rg 'Microsoft.Resources/resourceGroups@2024-03-01' = { ... }`." },
+            { "id": "name", "kind": "require", "pattern": "'rg-academy-prod'", "description": "Names it rg-academy-prod", "mistake": "Name the group `rg-academy-prod`." },
+            { "id": "location", "kind": "require", "pattern": "location:\\s*\\S+", "description": "Sets a location", "mistake": "Resource groups need a `location`." },
+            { "id": "env", "kind": "require", "pattern": "environment:\\s*'prod'", "description": "Tags environment: 'prod'", "mistake": "Add `environment: 'prod'` under `tags`." },
+            { "id": "cc", "kind": "require", "pattern": "costCenter:\\s*\\S+", "description": "Tags costCenter", "mistake": "Add a `costCenter` tag; otherwise your own deny policy rejects the group." },
+            { "id": "wrong-scope", "kind": "forbid", "pattern": "targetScope\\s*=\\s*'resourceGroup'", "description": "Not resource-group scoped", "mistake": "A resource-group-scoped file deploys into an existing group. It can't create one." }
+          ],
+          "solution": {
+            "code": "targetScope = 'subscription'\n\nparam location string = 'westeurope'\nparam costCenter string = 'platform-engineering'\n\nresource rg 'Microsoft.Resources/resourceGroups@2024-03-01' = {\n  name: 'rg-academy-prod'\n  location: location\n  tags: {\n    costCenter: costCenter\n    environment: 'prod'\n  }\n}",
+            "explanation": "Deploy it with `az deployment sub create --location westeurope --template-file main.bicep` (or with a `.bicepparam` file). The deployment record also needs a location, because subscription deployments are stored per region."
+          }
+        },
+        {
+          "id": "i2-reader-module",
+          "title": "Grant a built-in role from a module",
+          "scenario": "The prod identity only needs to read. A built-in role fits, so there's no custom role to maintain. The assignment must be idempotent: running the pipeline twice must not fail or create duplicates.",
+          "challenge": "Write the resource-group-scoped Bicep module that grants the built-in **Reader** role to the principal passed in as param `principalId`. Don't paste a full role-definition resource ID.",
+          "answerType": "bicep",
+          "review": "auto",
+          "topics": ["role-assignments", "bicep-deployment", "managed-identities"],
+          "hints": [
+            "Reader's role definition GUID is `acdd72a7-3385-48ef-bd42-f606fba81ae7`. Build its full ID with a function rather than a string.",
+            "An assignment's name must be a GUID that's the same on every deployment."
+          ],
+          "checks": [
+            { "id": "resource", "kind": "require", "pattern": "'Microsoft\\.Authorization/roleAssignments@", "flags": "i", "description": "Declares a role assignment", "mistake": "Declare a `Microsoft.Authorization/roleAssignments` resource." },
+            { "id": "reader", "kind": "require", "pattern": "acdd72a7-3385-48ef-bd42-f606fba81ae7", "flags": "i", "description": "Uses the Reader role GUID", "mistake": "Reader's role definition GUID is `acdd72a7-3385-48ef-bd42-f606fba81ae7`." },
+            { "id": "resource-id-fn", "kind": "require", "pattern": "subscriptionResourceId\\(\\s*'Microsoft\\.Authorization/roleDefinitions'", "flags": "i", "description": "Builds the ID with subscriptionResourceId()", "mistake": "Use `subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '<guid>')` so the ID is correct in any subscription." },
+            { "id": "guid-name", "kind": "require", "pattern": "name:\\s*guid\\(", "description": "Deterministic guid() name", "mistake": "Name the assignment `guid(resourceGroup().id, principalId, roleId)`. The same inputs give the same name, so a redeploy updates the assignment instead of failing with RoleAssignmentExists." },
+            { "id": "principal", "kind": "require", "pattern": "principalId:\\s*principalId\\b", "description": "Binds the principalId parameter", "mistake": "Set `principalId: principalId` in `properties`." },
+            { "id": "type", "kind": "require", "pattern": "principalType:\\s*'ServicePrincipal'", "description": "Declares principalType ServicePrincipal", "mistake": "Set `principalType: 'ServicePrincipal'`. It stops the deployment failing while a newly created identity is still replicating." },
+            { "id": "hardcoded", "kind": "forbid", "pattern": "'/subscriptions/[^']*/providers/Microsoft\\.Authorization/roleDefinitions/", "flags": "i", "description": "No hard-coded role definition path", "mistake": "A pasted `/subscriptions/<id>/providers/...` path only works in one subscription. Use `subscriptionResourceId()`." },
+            { "id": "scope", "kind": "forbid", "pattern": "targetScope\\s*=\\s*'subscription'", "description": "Module is resource-group scoped", "mistake": "This module is deployed into the resource group (`scope: rg` from the parent), so it keeps the default `resourceGroup` target scope." }
+          ],
+          "solution": {
+            "code": "@description('Object (principal) ID of the managed identity.')\nparam principalId string\n\nvar readerRoleId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'acdd72a7-3385-48ef-bd42-f606fba81ae7')\n\nresource readerAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {\n  name: guid(resourceGroup().id, principalId, readerRoleId)\n  properties: {\n    principalId: principalId\n    roleDefinitionId: readerRoleId\n    principalType: 'ServicePrincipal'\n  }\n}",
+            "explanation": "Built-in role GUIDs are the same in every tenant. `subscriptionResourceId()` turns one into a full ID. The `guid()` name is what makes redeploys idempotent. Compare with `bicep/modules/role-assignment.bicep`."
+          }
+        },
+        {
+          "id": "i3-policy-audit",
+          "title": "Roll out the tag policy safely",
+          "scenario": "In prod, switching straight to `deny` could break a release that nobody has tagged yet. The team wants the policy to audit first, then move to deny later without editing the rule.",
+          "challenge": "Write a subscription-scoped Bicep policy definition for the costCenter rule, with an `effect` parameter that defaults to `Audit` and allows only `Audit`, `Deny` and `Disabled`.",
+          "answerType": "bicep",
+          "review": "auto",
+          "topics": ["azure-policy", "bicep-deployment"],
+          "hints": [
+            "Policy definitions have their own `parameters` block, which is separate from Bicep `param`. Inside the rule, refer to one with the ARM expression `'[parameters(\\'effect\\')]'`."
+          ],
+          "checks": [
+            { "id": "resource", "kind": "require", "pattern": "'Microsoft\\.Authorization/policyDefinitions@", "flags": "i", "description": "Declares a policy definition", "mistake": "Declare a `Microsoft.Authorization/policyDefinitions` resource." },
+            { "id": "scope", "kind": "require", "pattern": "targetScope\\s*=\\s*'subscription'", "description": "Subscription scope", "mistake": "Custom policy definitions in this mission live at the subscription: `targetScope = 'subscription'`." },
+            { "id": "allowed", "kind": "require", "pattern": "^(?=[\\s\\S]*allowedValues)(?=[\\s\\S]*'Audit')(?=[\\s\\S]*'Deny')(?=[\\s\\S]*'Disabled')", "flags": "i", "description": "allowedValues lists Audit, Deny and Disabled", "mistake": "Constrain the parameter with `allowedValues: ['Audit', 'Deny', 'Disabled']` so nobody can assign a typo." },
+            { "id": "default", "kind": "require", "pattern": "defaultValue:\\s*'Audit'", "flags": "i", "description": "Defaults to Audit", "mistake": "Default the parameter to `'Audit'`, so the safe choice is what you get when nobody sets it." },
+            { "id": "param-ref", "kind": "require", "pattern": "effect:\\s*'\\[parameters\\(", "flags": "i", "description": "The rule's effect references the parameter", "mistake": "In `then`, set `effect: '[parameters(\\'effect\\')]'`. A literal value can't be changed per assignment." },
+            { "id": "tag", "kind": "require", "pattern": "tags\\['?costCenter'?\\]", "flags": "i", "description": "Still tests the costCenter tag", "mistake": "Keep the `tags[costCenter]` exists-false condition." }
+          ],
+          "solution": {
+            "code": "targetScope = 'subscription'\n\nresource requireCostCenter 'Microsoft.Authorization/policyDefinitions@2021-06-01' = {\n  name: 'require-costcenter-tag-on-rg'\n  properties: {\n    policyType: 'Custom'\n    mode: 'All'\n    displayName: 'Require costCenter tag on resource groups'\n    parameters: {\n      effect: {\n        type: 'String'\n        allowedValues: [\n          'Audit'\n          'Deny'\n          'Disabled'\n        ]\n        defaultValue: 'Audit'\n      }\n    }\n    policyRule: {\n      if: {\n        allOf: [\n          {\n            field: 'type'\n            equals: 'Microsoft.Resources/subscriptions/resourceGroups'\n          }\n          {\n            field: 'tags[costCenter]'\n            exists: 'false'\n          }\n        ]\n      }\n      then: {\n        effect: '[parameters(\\'effect\\')]'\n      }\n    }\n  }\n}",
+            "explanation": "Assign it with `effect: 'Audit'`, watch the compliance view until nothing new shows up as non-compliant, then change the assignment parameter to `Deny`. The definition never changes. A related setting is `enforcementMode: 'DoNotEnforce'` on the assignment, which turns enforcement off without changing the effect."
+          }
+        },
+        {
+          "id": "i4-readonly-prediction",
+          "title": "Predict what a ReadOnly lock breaks",
+          "scenario": "A security reviewer asks for the prod group to get a `ReadOnly` lock instead of `CanNotDelete`, saying \"it's safer\". Before anyone applies it, you're asked what it would break.",
+          "challenge": "Predict, without testing: which everyday operations fail under a ReadOnly lock, which still work, and why. Name at least one failure that surprises people.",
+          "answerType": "text",
+          "review": "mentor",
+          "topics": ["resource-locks"],
+          "hints": [
+            "Think about which HTTP methods ReadOnly allows, then about operations that read data but are sent as POST requests."
+          ],
+          "checks": [
+            { "id": "reads", "kind": "require", "pattern": "\\bread", "flags": "i", "description": "Says what still works (reads)", "mistake": "Say what still works: reads (GET) are allowed." },
+            { "id": "writes", "kind": "require", "pattern": "(write|update|modify|chang|scal|delet)", "flags": "i", "description": "Says writes are blocked", "mistake": "Say what's blocked: every write (create, update, scale, tag, delete)." },
+            { "id": "surprise", "kind": "require", "pattern": "(list\\s*keys|listKeys|\\bPOST\\b|connection string|access keys?)", "flags": "i", "description": "Names a surprising failure (e.g. listKeys)", "mistake": "The classic surprise is operations like listing storage account keys. They're POST requests, so a ReadOnly lock blocks them even though they feel like reads." }
+          ],
+          "solution": {
+            "code": "Still works: reads (GET), e.g. viewing resources and their settings.\nFails: every write. Creating, updating, scaling or deleting resources; adding or changing tags; even changing the lock-protected group's own settings.\nSurprise: operations that read data but are sent as POST, e.g. listing storage account keys (listKeys). Apps and the portal can't fetch keys or connection strings, and some portal blades stop working. ReadOnly protects configuration, but it also stops normal operations.",
+            "explanation": "Locks act on management-plane requests: ReadOnly allows GET and denies everything else, including read-like POST actions. CanNotDelete is usually the right default; use ReadOnly only for resources that truly must not change."
+          }
+        }
+      ]
+    },
+    "incident": {
+      "intro": "A teammate \"fixed a permissions issue\" last night. Now things are broken. Diagnose each incident: symptom, root cause, the least-risky fix, and how to stop it happening again. These are open-ended write-ups, so the rule checks only confirm you covered the key points; completion needs a mentor PASS.",
+      "tasks": [
+        {
+          "id": "p1-pipeline-authz",
+          "title": "The pipeline can no longer deploy",
+          "scenario": "The CI identity has only the custom Tag Operator role on the resource group. This morning every pipeline run fails when it tries to create a storage account.",
+          "challenge": "Write up the incident: the error you expect to see, the root cause, and the least-privilege fix. Say what you would *not* do.",
+          "answerType": "text",
+          "review": "mentor",
+          "topics": ["role-assignments", "least-privilege", "rbac-scope"],
+          "hints": [
+            "What does `*/read` plus the tag actions *not* include?",
+            "Least privilege means widening by the smallest step that unblocks the task: the narrowest role at the narrowest scope."
+          ],
+          "checks": [
+            { "id": "error", "kind": "require", "pattern": "AuthorizationFailed", "flags": "i", "description": "Names the AuthorizationFailed error", "mistake": "The symptom is `AuthorizationFailed`: the caller lacks the action on that scope." },
+            { "id": "cause", "kind": "require", "pattern": "(write|create)", "flags": "i", "description": "Identifies the missing write/create action", "mistake": "Name the cause: the role has no `write` action on the resource type being created." },
+            { "id": "scope", "kind": "require", "pattern": "(resource group|\\bRG\\b|scope)", "flags": "i", "description": "Keeps the fix narrowly scoped", "mistake": "Say where the fix applies: the narrowest scope that works, such as the workload resource group." }
+          ],
+          "solution": {
+            "code": "Symptom: AuthorizationFailed on the storage account create (PUT).\nRoot cause: the identity's only role is Tag Operator (*/read + tags write/delete), which has no write/create action for Microsoft.Storage/storageAccounts.\nFix: grant the smallest role that covers the actions at the narrowest scope. For example, Storage Account Contributor (or Contributor) scoped to the workload resource group, or a custom role with exactly the required Microsoft.Storage/... write actions.\nWould not: assign Owner, or anything at the subscription. Owner also grants role-assignment rights, which lets the pipeline escalate its own privileges.\nPrevent: define pipeline roles in Bicep and review changes to them in a PR.",
+            "explanation": "RBAC is additive and inherits downward, so assigning at a wider scope always grants more than you meant to. When you need to widen access, take the smallest step that unblocks the work."
+          }
+        },
+        {
+          "id": "p2-scope-locked",
+          "title": "Nobody can delete a stale resource group",
+          "scenario": "An engineer trying to delete `rg-academy-governance` gets `ScopeLocked`. They ask you for Owner \"to get around it\".",
+          "challenge": "Explain why this happens, why Owner won't help, and the correct, auditable way to proceed.",
+          "answerType": "text",
+          "review": "mentor",
+          "topics": ["resource-locks"],
+          "hints": [
+            "Locks apply to everyone, Owners included."
+          ],
+          "checks": [
+            { "id": "lock", "kind": "require", "pattern": "(CanNotDelete|\\block)", "flags": "i", "description": "Identifies the lock", "mistake": "`ScopeLocked` means a management lock (here `CanNotDelete`) applies at that scope or a parent scope." },
+            { "id": "remove", "kind": "require", "pattern": "((remove|delete)\\w*\\s+(the\\s+)?lock|lock\\s+delete)", "flags": "i", "description": "Removes the lock deliberately", "mistake": "The way forward is to remove the lock on purpose (`az lock delete`) and then delete the group." },
+            { "id": "deliberate", "kind": "require", "pattern": "(audit|approv|change|ticket|intentional|deliberate|confirm)", "flags": "i", "description": "Treats removal as an auditable decision", "mistake": "Make it a recorded decision (a change ticket or approval). The lock exists to force exactly this conversation." }
+          ],
+          "solution": {
+            "code": "Why: a CanNotDelete lock on the group (or a parent scope) blocks delete requests. Locks override RBAC, so being Owner doesn't help. Owner can remove the lock, but that's not the same as bypassing it.\nCorrect path: confirm the group really is stale and get approval (a change ticket). Then remove the lock deliberately (az lock delete --name donotdelete-governance-rg --resource-group rg-academy-governance), which leaves an entry in the Activity Log, and delete the group.\nThe lock did its job: it turned an accidental delete into an intentional, audited one.",
+            "explanation": "Locks are a safety catch, not a permission. Removing one is a normal, logged operation. What matters is that someone chose to remove it."
+          }
+        },
+        {
+          "id": "p3-policy-denied",
+          "title": "A new resource group is blocked by policy",
+          "scenario": "A product team's deployment fails with `RequestDisallowedByPolicy` while creating `rg-payments-dev`. They ask you to \"turn the policy off for an hour\".",
+          "challenge": "Identify the policy, then give the two legitimate ways to make the request succeed, and say why disabling the policy is the wrong move.",
+          "answerType": "text",
+          "review": "mentor",
+          "topics": ["azure-policy", "tags"],
+          "hints": [
+            "One fix changes the request; the other is a recorded governance decision about the policy."
+          ],
+          "checks": [
+            { "id": "policy", "kind": "require", "pattern": "(RequestDisallowedByPolicy|policy)", "flags": "i", "description": "Identifies the policy denial", "mistake": "Name the cause: the `require-costcenter-tag` assignment denies resource groups without the tag." },
+            { "id": "tag", "kind": "require", "pattern": "costCenter", "flags": "i", "description": "Fix 1: add the costCenter tag", "mistake": "The usual fix is to add the `costCenter` tag to the new resource group." },
+            { "id": "exemption", "kind": "require", "pattern": "(exemption|audit)", "flags": "i", "description": "Fix 2: an exemption or audit, as a governance decision", "mistake": "If the policy is genuinely wrong for this case, the legitimate route is a policy exemption (or a reviewed switch to audit), not disabling it." }
+          ],
+          "solution": {
+            "code": "Policy: the require-costcenter-tag assignment (deny effect) blocks resource groups without a costCenter tag. The RequestDisallowedByPolicy error names the assignment.\nFix 1 (normal): add the costCenter tag to rg-payments-dev and redeploy.\nFix 2 (only if the policy is wrong for this case): a reviewed policy exemption for that scope, with an expiry and a reason, or a reviewed change of the effect to audit.\nWhy not disable it: other teams' untagged resource groups would slip through while it's off, nothing records why, and \"an hour\" tends to become permanent.",
+            "explanation": "Guardrails are worth having because they're consistent. Exemptions exist for real exceptions and they're visible and auditable. Turning the policy off isn't either."
+          }
+        }
+      ]
+    }
+  },
+  "quiz": [
+    {
+      "id": "q1-additive",
+      "prompt": "A user has Reader on a resource group and Contributor on its subscription. What is their effective access to resources in that resource group?",
+      "options": ["Reader — the closer scope wins", "Contributor", "No access — the assignments conflict", "Reader for data, Contributor for management"],
+      "answer": 1,
+      "explanation": "RBAC is additive and inherits downward. The subscription-level Contributor applies to the resource group, and Reader combined with Contributor gives Contributor.",
+      "optionFeedback": [
+        "There's no \"closest scope wins\" rule in RBAC: permissions from every applicable assignment are added together.",
+        "Correct. Assignments inherit down from the subscription and add up.",
+        "Role assignments never conflict; they only add up. (Deny assignments are a separate feature.)",
+        "Neither role grants data-plane access; both are management-plane roles."
+      ],
+      "topics": ["rbac-scope"]
+    },
+    {
+      "id": "q2-target-scope",
+      "prompt": "A Bicep file declares `targetScope = 'subscription'`. Which pair can it declare directly, without a module?",
+      "options": ["A storage account and a resource group", "A resource group and a subscription-scope policy assignment", "A role assignment on a resource group and a storage account", "Only resource groups"],
+      "answer": 1,
+      "explanation": "Resource groups and subscription-scope policy assignments are subscription-level resources. Anything inside a resource group, such as a storage account or an RG-scoped role assignment, needs a module with `scope: rg`.",
+      "optionFeedback": [
+        "A storage account belongs to a resource group, so it needs a module scoped to that group.",
+        "Correct. Both are subscription-level resources.",
+        "Both live at resource-group scope and need a module.",
+        "Policy definitions, policy assignments, custom roles and other subscription-level resources can be declared directly too."
+      ],
+      "topics": ["bicep-deployment", "rbac-scope"]
+    },
+    {
+      "id": "q3-audit-deny",
+      "prompt": "What is the practical difference between the `audit` and `deny` policy effects?",
+      "options": ["audit logs to the Activity Log only; deny writes to Log Analytics", "deny blocks the non-compliant request; audit allows it and marks it non-compliant", "audit applies only to existing resources; deny only to new ones", "There is none; audit is an alias for deny"],
+      "answer": 1,
+      "explanation": "`deny` stops the request when it's made. `audit` lets it through and records it as non-compliant. Roll out with audit, measure the impact, then switch to deny.",
+      "optionFeedback": [
+        "Both effects show up in the compliance view. The difference is whether the request is blocked.",
+        "Correct.",
+        "Both evaluate new requests and existing resources (on compliance scans).",
+        "They behave very differently. Only deny blocks the request."
+      ],
+      "topics": ["azure-policy"]
+    },
+    {
+      "id": "q4-owner-sub",
+      "prompt": "`az role assignment create --assignee alice@contoso.com --role Owner --scope /subscriptions/<id>` — what is the main risk?",
+      "options": ["None, Owner is required to deploy", "It grants Alice full control of the whole subscription, including managing access", "It fails because users cannot be assigned Owner", "It only grants read access until Alice re-authenticates"],
+      "answer": 1,
+      "explanation": "Owner at the subscription is the widest role at the widest scope, and it includes role-assignment rights. Least privilege means the narrowest role and scope that does the job, for example Contributor on one resource group.",
+      "optionFeedback": [
+        "Deploying needs write actions, which Contributor or a narrower role provides. Owner adds access management on top.",
+        "Correct.",
+        "Users can hold Owner. That's exactly why this command is dangerous.",
+        "Role assignments take effect within minutes and grant everything in the role."
+      ],
+      "topics": ["least-privilege", "role-assignments"]
+    },
+    {
+      "id": "q5-lock-reads",
+      "prompt": "After a CanNotDelete lock is added to a storage account's resource group, a script that reads blobs starts failing. What is the most likely conclusion?",
+      "options": ["The lock blocks blob reads", "The lock is probably not the cause — CanNotDelete allows reads; check network, keys or RBAC", "The lock blocks listing storage account keys", "Locks block all data-plane access"],
+      "answer": 1,
+      "explanation": "CanNotDelete blocks only deletes. A ReadOnly lock is the one that breaks key listing (a POST request). So look for another cause: firewall rules, rotated keys, or data-plane RBAC.",
+      "optionFeedback": [
+        "CanNotDelete doesn't block reads of any kind.",
+        "Correct. Rule the lock out and keep troubleshooting.",
+        "That's true of a ReadOnly lock, not CanNotDelete.",
+        "Locks act on management-plane requests; blob reads are data-plane."
+      ],
+      "topics": ["resource-locks"]
+    },
+    {
+      "id": "q6-assignable-scopes",
+      "prompt": "A custom role has `AssignableScopes: [\"/subscriptions/A\"]`. Can you assign it on a resource group in subscription B?",
+      "options": ["Yes, assignable scopes are advisory", "No — an assignment must be at or below one of the role's assignable scopes", "Yes, if you are Owner of subscription B", "Only through Bicep, not the CLI"],
+      "answer": 1,
+      "explanation": "`AssignableScopes` limits where a role may be assigned. It grants nothing itself: access comes only from assignments, and an assignment's scope must sit inside one of the assignable scopes.",
+      "optionFeedback": [
+        "They're enforced: the assignment is rejected.",
+        "Correct.",
+        "Owner can't override a role's assignable scopes. You'd have to add B to the role definition.",
+        "The rule is enforced by Azure Resource Manager, whatever tool you use."
+      ],
+      "topics": ["custom-roles", "rbac-scope"]
+    },
+    {
+      "id": "q7-principal-id",
+      "prompt": "A user-assigned managed identity has a clientId and a principalId. Which one does a role assignment use?",
+      "options": ["clientId", "principalId (the object ID)", "Either; they are the same value", "The identity's resource ID"],
+      "answer": 1,
+      "explanation": "RBAC binds to the principal's object ID, which is the principalId. The clientId is what code uses to request a token as that identity.",
+      "optionFeedback": [
+        "The clientId identifies the identity when it requests a token, not in RBAC.",
+        "Correct.",
+        "They're different GUIDs with different jobs.",
+        "The resource ID identifies the Azure resource, not the Entra principal."
+      ],
+      "topics": ["managed-identities", "role-assignments"]
+    },
+    {
+      "id": "q8-do-not-enforce",
+      "prompt": "A deny policy assignment has `enforcementMode: DoNotEnforce`. What happens when someone creates a non-compliant resource group?",
+      "options": ["The request is denied", "The request succeeds, and compliance is still evaluated and reported", "The request succeeds and compliance is not evaluated", "The assignment is deleted automatically"],
+      "answer": 1,
+      "explanation": "DoNotEnforce turns off the effect (no deny) but still evaluates and reports compliance. You can use it to test what an assignment would affect before turning it on.",
+      "optionFeedback": [
+        "DoNotEnforce turns the deny effect off.",
+        "Correct.",
+        "Compliance is still evaluated. That's what makes it useful for testing.",
+        "Enforcement mode never removes the assignment."
+      ],
+      "topics": ["azure-policy"]
+    },
+    {
+      "id": "q9-tag-inheritance",
+      "prompt": "A resource group is tagged costCenter=platform-engineering. What tags does a storage account created inside it get?",
+      "options": ["costCenter=platform-engineering, automatically", "Only the tags you set on the storage account itself", "All of the group's tags, but read-only", "None until the next nightly sync"],
+      "answer": 1,
+      "explanation": "Resources don't inherit their resource group's tags. If you need them copied down, use a policy such as the built-in \"Inherit a tag from the resource group\" (modify effect).",
+      "optionFeedback": [
+        "This is the common misconception: tags don't inherit.",
+        "Correct.",
+        "Resources don't get any of the group's tags.",
+        "There's no tag sync. Inheritance needs a modify policy."
+      ],
+      "topics": ["tags", "azure-policy"]
+    }
+  ]
+}
