@@ -1,6 +1,7 @@
 # ADR 0002 — Progress tracking stays local and backend-free
 
-- **Status:** accepted
+- **Status:** accepted. Implemented by the academy in `academy/` (see ADR 0003); `PROGRESS.md`
+  is now an optional written log.
 - **Date:** 2026-11-23
 
 ## Context

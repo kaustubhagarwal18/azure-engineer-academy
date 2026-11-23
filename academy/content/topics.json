@@ -1,0 +1,64 @@
+{
+  "rbac-scope": {
+    "title": "RBAC scope and inheritance",
+    "docs": [
+      { "title": "Understand scope for Azure RBAC", "url": "https://learn.microsoft.com/en-us/azure/role-based-access-control/scope-overview" }
+    ]
+  },
+  "custom-roles": {
+    "title": "Custom roles and assignable scopes",
+    "docs": [
+      { "title": "Azure custom roles", "url": "https://learn.microsoft.com/en-us/azure/role-based-access-control/custom-roles" },
+      { "title": "Azure built-in roles", "url": "https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles" }
+    ]
+  },
+  "role-assignments": {
+    "title": "Role assignments",
+    "docs": [
+      { "title": "Assign Azure roles using Azure CLI", "url": "https://learn.microsoft.com/en-us/azure/role-based-access-control/role-assignments-cli" },
+      { "title": "Troubleshoot Azure RBAC", "url": "https://learn.microsoft.com/en-us/azure/role-based-access-control/troubleshooting" }
+    ]
+  },
+  "least-privilege": {
+    "title": "Least privilege",
+    "docs": [
+      { "title": "Best practices for Azure RBAC", "url": "https://learn.microsoft.com/en-us/azure/role-based-access-control/best-practices" }
+    ]
+  },
+  "managed-identities": {
+    "title": "Managed identities",
+    "docs": [
+      { "title": "What are managed identities for Azure resources?", "url": "https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/overview" }
+    ]
+  },
+  "azure-policy": {
+    "title": "Azure Policy: effects, assignments and exemptions",
+    "docs": [
+      { "title": "What is Azure Policy?", "url": "https://learn.microsoft.com/en-us/azure/governance/policy/overview" },
+      { "title": "Azure Policy definitions effect basics", "url": "https://learn.microsoft.com/en-us/azure/governance/policy/concepts/effect-basics" },
+      { "title": "Azure Policy assignment structure (enforcement mode)", "url": "https://learn.microsoft.com/en-us/azure/governance/policy/concepts/assignment-structure" },
+      { "title": "Azure Policy exemption structure", "url": "https://learn.microsoft.com/en-us/azure/governance/policy/concepts/exemption-structure" }
+    ]
+  },
+  "resource-locks": {
+    "title": "Management locks",
+    "docs": [
+      { "title": "Lock your Azure resources", "url": "https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/lock-resources" }
+    ]
+  },
+  "tags": {
+    "title": "Tags and cost attribution",
+    "docs": [
+      { "title": "Use tags to organize your Azure resources", "url": "https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/tag-resources" }
+    ]
+  },
+  "bicep-deployment": {
+    "title": "Bicep deployment scopes and parameter files",
+    "docs": [
+      { "title": "Subscription deployments with Bicep", "url": "https://learn.microsoft.com/en-us/azure/azure-resource-manager/bicep/deploy-to-subscription" },
+      { "title": "Bicep parameter files", "url": "https://learn.microsoft.com/en-us/azure/azure-resource-manager/bicep/parameter-files" },
+      { "title": "Bicep deployment what-if", "url": "https://learn.microsoft.com/en-us/azure/azure-resource-manager/bicep/deploy-what-if" },
+      { "title": "Create Azure RBAC resources by using Bicep", "url": "https://learn.microsoft.com/en-us/azure/azure-resource-manager/bicep/scenarios-rbac" }
+    ]
+  }
+}

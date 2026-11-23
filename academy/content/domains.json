@@ -1,0 +1,59 @@
+[
+  {
+    "id": "identity-governance",
+    "week": 1,
+    "title": "Manage Azure identities and governance",
+    "weight": [20, 25],
+    "skills": ["Manage Microsoft Entra users and groups", "Manage access to Azure resources", "Manage Azure subscriptions and governance"],
+    "missions": [
+      { "id": "m001", "title": "Governed landing zone foundations", "available": true, "readme": "../missions/mission-001-identity-governance/README.md" },
+      { "id": "m002", "title": "Entra users, groups, and administrative units at scale", "available": false },
+      { "id": "m003", "title": "Managed identities end to end", "available": false }
+    ]
+  },
+  {
+    "id": "storage",
+    "week": 2,
+    "title": "Implement and manage storage",
+    "weight": [15, 20],
+    "skills": ["Configure access to storage", "Configure and manage storage accounts", "Configure Azure Files and Azure Blob Storage"],
+    "missions": [
+      { "id": "m010", "title": "Storage accounts, redundancy, access tiers, lifecycle management", "available": false },
+      { "id": "m011", "title": "Blob + Azure Files, SAS, networking restrictions, data protection", "available": false }
+    ]
+  },
+  {
+    "id": "compute",
+    "week": 3,
+    "title": "Deploy and manage Azure compute resources",
+    "weight": [20, 25],
+    "skills": ["Automate deployment with ARM/Bicep", "Create and configure VMs", "Provision and manage containers", "Create and configure Azure App Service"],
+    "missions": [
+      { "id": "m020", "title": "Linux VMs: sizing, availability, disks, troubleshooting", "available": false },
+      { "id": "m021", "title": "VM Scale Sets and autoscale", "available": false },
+      { "id": "m022", "title": "App Service and containers", "available": false }
+    ]
+  },
+  {
+    "id": "networking",
+    "week": 4,
+    "title": "Implement and manage virtual networking",
+    "weight": [15, 20],
+    "skills": ["Configure and manage virtual networks", "Configure secure access to virtual networks", "Configure name resolution and load balancing"],
+    "missions": [
+      { "id": "m030", "title": "VNets, subnets, NSGs, ASGs, peering, UDRs", "available": false },
+      { "id": "m031", "title": "DNS, VPN Gateway, Bastion, private endpoints, troubleshooting", "available": false }
+    ]
+  },
+  {
+    "id": "monitoring",
+    "week": 5,
+    "title": "Monitor and maintain Azure resources",
+    "weight": [10, 15],
+    "skills": ["Monitor resources in Azure", "Implement backup and recovery"],
+    "missions": [
+      { "id": "m040", "title": "Azure Monitor, Log Analytics, KQL, alerts", "available": false },
+      { "id": "m041", "title": "Backup and recovery, Site Recovery, Network Watcher", "available": false }
+    ]
+  }
+]

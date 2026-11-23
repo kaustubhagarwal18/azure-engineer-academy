@@ -6,20 +6,79 @@ you complete missions.
 ## Learning platform
 
 The platform is deliberately static and dependency-light. There is no backend, database, or
-auth system — progress lives in [PROGRESS.md](../PROGRESS.md) today and will move to a
-static, local-storage dashboard in Phase 3 (see [ADR 0002](adr/0002-local-progress-no-backend.md)).
+auth system. Progress lives in the learner's browser, managed by the interactive academy (see
+[ADR 0002](adr/0002-local-progress-no-backend.md) and
+[ADR 0003](adr/0003-static-academy-rule-checks-and-mentor-review.md)).
 
 ```mermaid
 flowchart LR
-    L[Learner] --> M[Mission README]
+    L[Learner] --> A[Academy\nacademy/index.html]
+    L --> M[Mission README]
+    A -->|tasks, quiz| C[(academy/content/*.json)]
+    M -. kept in sync .- C
     M -->|CLI path| CLI[cli/*.sh]
     M -->|Bicep path| B[bicep/main.bicep + modules]
     CLI --> AZ[(Azure subscription\n— learner-owned, optional)]
     B --> AZ
     B --> CI[CI: validate-bicep\nbuild + lint]
-    M --> P[PROGRESS.md]
-    P -.Phase 3.-> D[Static dashboard\nlocalStorage]
+    A --> LS[(localStorage\nprogress)]
+    A -->|copied prompt| MENTOR[AI mentor\nlearner pastes it]
 ```
+
+## Academy
+
+The academy is plain HTML, CSS and ES modules served as static files. Course content is JSON;
+the code is generic, so a new mission is a content change.
+
+```mermaid
+flowchart TB
+    MAIN["js/main.js (shell: fetch, localStorage, hashchange)"]
+    subgraph UI ["js/ui (views)"]
+        D[dashboard]
+        T[task player]
+        Q[quiz]
+        P["mission / revision / achievements / settings"]
+    end
+    subgraph Core ["js/core (pure, unit-tested under Node)"]
+        R[router]
+        CT["content: load + validate"]
+        ST["store: injected storage"]
+        EV["evaluate: require / forbid rules"]
+        PR["progress: transitions + completion"]
+        AC["achievements: derived"]
+        WT["weakTopics: scored signals"]
+        MP[mentorPrompt]
+    end
+    MAIN --> R
+    MAIN --> CT
+    MAIN --> ST
+    MAIN --> UI
+    T --> EV
+    T --> PR
+    T --> MP
+    Q --> PR
+    D --> PR
+    D --> AC
+    D --> WT
+    P --> WT
+    P --> AC
+```
+
+**How an answer is judged.** `evaluate()` normalises the answer (it joins `\` line
+continuations and collapses spaces), then runs the task's checks. A `require` rule passes on a
+match and a `forbid` rule passes on no match. An empty answer never passes. A task is
+**complete** when the mentor verdict is PASS, or when the rule checks passed, the task isn't
+`review: "mentor"`, and the mentor hasn't said NEEDS WORK.
+
+**How progress is weighted.** A mission's fraction is (complete tasks + correctly answered quiz
+questions) / (tasks + questions). A domain's fraction is the mean over its *planned* missions,
+with unpublished ones counting as 0. Overall progress weights each domain by the midpoint of
+its exam-weight range (22.5 / 17.5 / 22.5 / 17.5 / 12.5).
+
+**How weak topics are ranked.** Each task and question carries topics. Struggle signals add
+weight to them: a first-try quiz miss +2, solution revealed before solving +2, mentor NEEDS
+WORK +2, each hint +0.5, each failed attempt +0.5 (at most 4 counted per task). Topics are
+sorted by score, and the revision plan lists unfinished tasks first, with Microsoft Learn links.
 
 Every mission ships the **same infrastructure twice** — once imperatively via the Azure CLI and
 once declaratively via Bicep — so you internalise both and learn when each is appropriate
@@ -77,7 +136,13 @@ flowchart TB
 |--------------|---------|
 | See the mission list and status | [ROADMAP.md](../ROADMAP.md) |
 | Understand the mission format | [mission-template.md](mission-template.md) |
-| Start learning | [missions/mission-001-identity-governance/README.md](../missions/mission-001-identity-governance/README.md) |
+| Start learning | the academy ([academy/README.md](../academy/README.md)) and [missions/mission-001-identity-governance/README.md](../missions/mission-001-identity-governance/README.md) |
+| Change a task, hint, check or quiz question | `academy/content/missions/<id>.json` (keep the mission README in sync) |
+| Change how answers are checked or progress is counted | `academy/js/core/evaluate.js`, `academy/js/core/progress.js` |
+| Change weak-topic scoring or achievements | `academy/js/core/weakTopics.js`, `academy/js/core/achievements.js` |
+| Change the mentor prompt | `academy/js/core/mentorPrompt.js` |
+| Test the academy | `academy/tests/` (`node --test`) and `academy/tests/e2e/smoke.mjs` |
 | Read a design decision | [adr/](adr/) |
 | See how the capstone evolves | [capstone/README.md](../capstone/README.md) |
 | Understand CI | [.github/workflows/validate-bicep.yml](../.github/workflows/validate-bicep.yml) |
+| Understand the academy's CI | [.github/workflows/validate-academy.yml](../.github/workflows/validate-academy.yml) |

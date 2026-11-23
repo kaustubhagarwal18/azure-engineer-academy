@@ -56,7 +56,12 @@ Legend: ✅ done · 🚧 in progress · ⬜ planned
 1. ✅ **Phase 1 — Foundation:** repo scaffold, README, roadmap, mission template, CI.
 2. ✅ **Phase 2 — Mission 001** as the reference implementation (CLI + Bicep, validation,
    troubleshooting, exam questions, cleanup/cost).
-3. ⬜ **Phase 3 — Dashboard:** static, local-storage progress UI (no backend). Deferred by design.
+3. ✅ **Phase 3 — Interactive academy** ([academy/](academy/README.md)): dashboard with
+   weighted AZ-104 progress, five domains, mission navigation, Guided / Independent / Production
+   Incident modes, a task player (rule checks with mistake explanations, progressive hints,
+   solution after an attempt), a mentor-review workflow, quizzes with per-option feedback, a
+   weak-topic revision plan, derived achievements, local persistence with export/import. Static,
+   no dependencies ([ADR 0003](docs/adr/0003-static-academy-rule-checks-and-mentor-review.md)).
 4. ⬜ **Phase 4 — Remaining missions** (Weeks 2–5), each feeding the capstone.
 5. ⬜ **Phase 5 — Portfolio polish:** diagrams, extra quality checks, security review.
 
@@ -64,9 +69,18 @@ Legend: ✅ done · 🚧 in progress · ⬜ planned
 
 - No live-deployment validation in this repo; templates are compile- and lint-checked only.
   Deployment against a real subscription is left to the learner (and flagged as billable).
-- Dashboard not implemented; progress is tracked in [PROGRESS.md](PROGRESS.md).
+- Academy rule checks are regex patterns. They can reject a valid answer in a form nobody
+  anticipated; a mentor PASS overrides them. Report any false rejection as a content bug.
+- Academy progress is per browser (no sync). Mentor verdicts are self-reported.
+- The browser smoke test has only been run on macOS. Its CI job is non-blocking until it is
+  proven stable on GitHub's Ubuntu runners.
+- Mission content exists twice (README and `academy/content/missions/*.json`) and has to be kept
+  in sync by hand. The mission template says so, but nothing checks it automatically.
 
 ## Planned fixes / next up
+
+- Make the academy `e2e` CI job blocking once it has passed reliably on GitHub's runners.
+- Each new mission ships its academy JSON in the same PR as its README.
 
 - Build Mission 002 and Mission 010 using Mission 001 as the pattern.
 - Add `az deployment ... what-if` transcripts captured from a real subscription as expected-output

@@ -1,0 +1,9 @@
+{
+  "name": "azure-engineer-academy-ui",
+  "private": true,
+  "description": "Static, dependency-free learning interface. This file only tells Node that .js files are ES modules (for node --test); there are no dependencies to install.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test \"tests/*.test.js\""
+  }
+}

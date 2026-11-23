@@ -58,3 +58,28 @@ MCQ, scenario, command-interpretation, and troubleshooting questions. Answers in
 ### Mission completion
 Clear done-criteria, and the line to copy into the repo-root [PROGRESS.md](../PROGRESS.md).
 (From a real mission at `missions/mission-NNN/README.md`, that link is `../../PROGRESS.md`.)
+
+## Interactive content (academy)
+
+Every published mission also has a data file for the interactive academy:
+`academy/content/missions/<id>.json`. It holds the tasks, hints, rule checks, solutions and
+quiz, and `academy/content/domains.json` marks the mission `"available": true`.
+
+**The README and the JSON describe the same mission and must stay in sync.** The README is the
+long-form reference: architecture, theory, full CLI and Bicep. The JSON is the hands-on
+practice. When you change a task, requirement, solution or exam question in one, change the
+other in the same commit.
+
+Rules for the JSON (`node --test` in `academy/` enforces them):
+
+- Every task has a scenario, a concrete challenge, at least one hint (ordered from vague to
+  specific), at least one `require` check, and a solution with an explanation.
+- The reference solution must pass all of its own checks, and an empty or unrelated answer
+  must fail them.
+- Each check's `mistake` text explains the concept behind the error, not just the fix.
+- Accept every equivalent valid form you know of (short and long flags, alternative scope
+  syntax). A check that rejects a correct answer teaches the wrong lesson.
+- Open-ended answers (incident write-ups, predictions) use `"review": "mentor"`. Their checks
+  only confirm the key points are covered, and completion needs a mentor PASS.
+- Every topic must exist in `academy/content/topics.json`, with Microsoft Learn links that you
+  have opened and checked.

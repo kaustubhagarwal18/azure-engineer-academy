@@ -11,6 +11,11 @@
 > **Mentor note.** Attempt every task yourself before expanding a `<details>` block. The point
 > is to build the muscle, not to read the answer. When we work this mission live, I give you one
 > task at a time, review your attempt, and hint before revealing.
+>
+> **Practise it interactively:** every task below, plus a quiz, is in the
+> [academy](../../academy/README.md), with rule checks, hints one at a time, and a mentor-review
+> prompt. This README stays the full reference. If you change a task here, change
+> `academy/content/missions/m001.json` too.
 
 ---
 
